@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Christoffel's Digital Menu</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font and base styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* bg-gray-100 */
+        }
+        /* Style for inputs/selects to match RN simulation */
+        input, select, textarea {
+            transition: all 0.2s;
+        }
+        input:focus, select:focus, textarea:focus {
+            border-color: #3b82f6; /* focus:ring-blue-500 */
+            box-shadow: 0 0 0 1px #3b82f6;
+            outline: none;
+        }
+        /* Custom scrollbar for menu lists */
+        .menu-list-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        .menu-list-container::-webkit-scrollbar-thumb {
+            background-color: #d1d5db;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div id="app" class="max-w-xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden min-h-[80vh]">
+        <!-- Content will be rendered here by JavaScript -->
+    </div>
+
+    <script>
+        // --- 1. Static Data & Initial State ---
+        const predefinedCourses = [
+            { id: 'starter', name: 'Starter', color: '#EF4444' }, // red-500
+            { id: 'main', name: 'Main Course', color: '#10B981' }, // emerald-500
+            { id: 'dessert', name: 'Dessert', color: '#3B82F6' }, // blue-500
+        ];
+
+        let menu = [
+            { id: '1', name: 'Seared Scallops', description: 'Served with saffron reduction.', course: 'starter', price: 15.50 },
+            { id: '2', name: 'Filet Mignon', description: 'With garlic mash and asparagus.', course: 'main', price: 45.00 },
+            { id: '3', name: 'Chocolate Lava Cake', description: 'Warm cake with vanilla ice cream.', course: 'dessert', price: 12.00 },
+            { id: '4', name: 'Tomato Soup', description: 'Classic recipe with basil.', course: 'starter', price: 8.50 },
+            { id: '5', name: 'Gnocchi al Pesto', description: 'Hand-made potato gnocchi.', course: 'main', price: 28.50 },
+        ];
+
+        let currentPage = 'Home';
+        const appContainer = document.getElementById('app');
+
+        // --- 2. Utility Functions ---
+
+        /**
+         * Calculates total items and the average price broken down by course (PoE Requirement).
+         */
+        const calculateMenuStats = (menuItems) => {
+            const totalItems = menuItems.length;
+
+            const courseTotals = predefinedCourses.reduce((acc, course) => {
+                acc[course.id] = { sum: 0, count: 0 };
+                return acc;
+            }, {});
+
+            menuItems.forEach(item => {
+                if (courseTotals[item.course]) {
+                    courseTotals[item.course].sum += item.price;
+                    courseTotals[item.course].count += 1;
+                }
+            });
+
+            const averagePrices = {};
+            predefinedCourses.forEach(course => {
+                const data = courseTotals[course.id];
+                averagePrices[course.id] = data.count > 0 ? (data.sum / data.count) : 0;
+            });
+
+            return { totalItems, averagePrices };
+        };
+
+        // Simple ID generator for new menu items
+        const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+
+        /**
+         * Custom message box (since alert() is forbidden)
+         */
+        const showMessage = (text, type = 'success') => {
+            const messageBox = document.createElement('div');
+            messageBox.textContent = text;
+            
+            let classes = 'fixed bottom-4 left-1/2 transform -translate-x-1/2 p-3 rounded-lg text-white font-semibold z-50 shadow-xl transition-opacity duration-300';
+            
+            if (type === 'success') {
+                classes += ' bg-green-500';
+            } else if (type === 'error') {
+                classes += ' bg-red-600';
+            } else {
+                classes += ' bg-blue-500';
+            }
+            
+            messageBox.className = classes;
+            document.body.appendChild(messageBox);
+            
+            // Auto-hide after 3 seconds
+            setTimeout(() => {
+                messageBox.style.opacity = '0';
+                messageBox.addEventListener('transitionend', () => messageBox.remove());
+            }, 3000);
+        };
+
+        // --- 3. Shared Components / Rendering Logic ---
+
+        const navigateTo = (screen) => {
+            currentPage = screen;
+            renderApp();
+        };
+
+        /**
+         * Renders a single menu item card.
+         */
+        const renderMenuItemCard = (item, isManageScreen = false) => {
+            const courseDetail = predefinedCourses.find(c => c.id === item.course) || {};
+            
+            let html = `
+            <div class="p-4 mb-3 rounded-lg shadow-sm border-l-4 border-l-[${courseDetail.color}] bg-white">
+                <div class="flex justify-between items-start">
+                    <p class="text-lg font-bold text-gray-800">${item.name}</p>
+                    <p class="text-xl font-extrabold text-emerald-600">$${item.price.toFixed(2)}</p>
+                </div>
+                <p class="text-sm text-gray-500 mt-1">${item.description}</p>
+                <p class="text-xs font-semibold mt-2" style="color: ${courseDetail.color};">Course: ${courseDetail.name || 'N/A'}</p>
+            `;
+
+            if (isManageScreen) {
+                html += `
+                    <button onclick="handleRemoveItem('${item.id}')"
+                            class="mt-3 float-right px-3 py-1 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition duration-150 shadow-md">
+                        Remove
+                    </button>
+                    <div class="clearfix"></div>
+                `;
+            }
+
+            html += `</div>`;
+            return html;
+        };
+        
+        // --- 4. Screen Rendering Functions ---
+
+        /**
+         * Renders the Home Screen (Full Menu Display & Stats)
+         */
+        const renderHomeScreen = () => {
+            const stats = calculateMenuStats(menu);
+            
+            // Average Price Breakdown (PoE Requirement)
+            const statsHtml = predefinedCourses.map(course => {
+                const avgPrice = stats.averagePrices[course.id];
+                const displayPrice = avgPrice > 0 ? `$${avgPrice.toFixed(2)}` : 'N/A';
+                return `
+                    <div class="flex justify-between items-center p-3 mb-2 rounded-lg bg-white border-l-4" style="border-left-color: ${course.color};">
+                        <p class="text-base font-semibold text-gray-700">${course.name}</p>
+                        <p class="text-xl font-bold" style="color: ${course.color};">${displayPrice}</p>
+                    </div>
+                `;
+            }).join('');
+            
+            // Menu List
+            const menuListHtml = menu.length === 0 
+                ? '<p class="text-center text-gray-500 py-4">No items yet. Go to Manage Menu to add dishes.</p>'
+                : menu.map(item => renderMenuItemCard(item, false)).join('');
+
+            return `
+                <div class="p-6">
+                    <h1 class="text-3xl font-extrabold text-gray-800 mb-6 text-center">Christoffel's Digital Menu</h1>
+                    
+                    <!-- Total Items (Part 2 Requirement) -->
+                    <div class="p-3 mb-6 rounded-lg bg-teal-50 shadow-inner">
+                        <p class="text-center text-lg font-medium text-teal-700">
+                            Total Menu Items: <span class="font-bold text-2xl">${stats.totalItems}</span>
+                        </p>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-gray-800 mt-4 mb-3 border-b pb-1">Average Price by Course</h2>
+                    <div>${statsHtml}</div>
+
+                    <h2 class="text-xl font-bold text-gray-800 mt-6 mb-3 border-b pb-1">Full Menu List</h2>
+                    <div class="menu-list-container h-64 overflow-y-auto pr-2">
+                        ${menuListHtml}
+                    </div>
+                    
+                    <!-- Navigation Buttons -->
+                    <div class="mt-8 pt-4 border-t border-gray-200 space-y-3">
+                        <button onclick="navigateTo('Manage')"
+                                class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-150 shadow-lg shadow-indigo-300">
+                            Manage Menu (Chef View)
+                        </button>
+                        <button onclick="navigateTo('Filter')"
+                                class="w-full py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition duration-150 shadow-lg shadow-amber-300">
+                            Guest View (Filter Menu)
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        /**
+         * Renders the Manage Menu Screen (Add/Remove)
+         */
+        const renderManageScreen = () => {
+            const courseOptions = predefinedCourses.map(c => 
+                `<option value="${c.id}">${c.name}</option>`
+            ).join('');
+
+            const removableListHtml = menu.length === 0
+                ? '<p class="text-center text-gray-500 py-4">No items to remove.</p>'
+                : menu.map(item => renderMenuItemCard(item, true)).join('');
+
+            return `
+                <div class="p-6">
+                    <h1 class="text-3xl font-extrabold text-gray-800 mb-6 text-center">Manage Menu Items</h1>
+                    
+                    <!-- Add Item Form -->
+                    <div class="bg-gray-50 p-4 rounded-xl shadow-md mb-8">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Add New Item</h2>
+                        <form id="addItemForm" onsubmit="handleAddItem(event)">
+                            <input type="text" id="dishName" placeholder="Dish Name" required 
+                                   class="w-full p-3 border border-gray-300 rounded-lg mb-3">
+                            
+                            <textarea id="description" placeholder="Description" required rows="3"
+                                      class="w-full p-3 border border-gray-300 rounded-lg mb-3 resize-none"></textarea>
+                            
+                            <div class="flex space-x-3 mb-4">
+                                <select id="courseSelect" required 
+                                        class="flex-1 p-3 border border-gray-300 rounded-lg">
+                                    ${courseOptions}
+                                </select>
+                                <input type="number" id="price" placeholder="Price ($)" required step="0.01" min="0.01"
+                                       class="flex-1 p-3 border border-gray-300 rounded-lg">
+                            </div>
+                            
+                            <button type="submit"
+                                    class="w-full py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition duration-150 shadow-lg shadow-emerald-300">
+                                Add Menu Item
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Remove List -->
+                    <h2 class="text-xl font-bold text-gray-800 mt-6 mb-3 border-b pb-2">Remove Existing Items</h2>
+                    <div class="menu-list-container h-64 overflow-y-auto pr-2">
+                        ${removableListHtml}
+                    </div>
+
+                    <div class="mt-8 pt-4 border-t border-gray-200">
+                        <button onclick="navigateTo('Home')"
+                                class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
+                            Go to Home Screen
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        /**
+         * Renders the Filter Screen (Guest View)
+         */
+        let selectedCourseFilter = null;
+        const renderFilterScreen = () => {
+            const filteredMenu = selectedCourseFilter 
+                ? menu.filter(item => item.course === selectedCourseFilter) 
+                : menu;
+
+            const filterButtonsHtml = `
+                <button onclick="setFilter(null)" 
+                        class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 
+                        ${selectedCourseFilter === null ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
+                    Show All
+                </button>
+                ${predefinedCourses.map(course => {
+                    const isActive = selectedCourseFilter === course.id;
+                    return `
+                        <button onclick="setFilter('${course.id}')" 
+                                class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 ${isActive 
+                                    ? 'text-white shadow-md' 
+                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}" 
+                                style="background-color: ${isActive ? course.color : ''};">
+                            ${course.name}
+                        </button>
+                    `;
+                }).join('')}
+            `;
+            
+            const filteredListHtml = filteredMenu.length === 0 
+                ? '<p class="text-center text-gray-500 py-4">No items found for this course selection.</p>'
+                : filteredMenu.map(item => renderMenuItemCard(item, false)).join('');
+
+            return `
+                <div class="p-6">
+                    <h1 class="text-3xl font-extrabold text-gray-800 mb-6 text-center">Guest View: Filter Menu</h1>
+                    
+                    <!-- Course Filter Buttons (PoE Requirement) -->
+                    <div class="bg-gray-50 p-4 rounded-xl shadow-md mb-8 flex flex-wrap justify-center gap-3">
+                        ${filterButtonsHtml}
+                    </div>
+
+                    <h2 class="text-xl font-bold text-gray-800 mt-6 mb-3 border-b pb-1">
+                        Displaying ${filteredMenu.length} ${filteredMenu.length === 1 ? 'Item' : 'Items'}
+                    </h2>
+                    <div class="menu-list-container h-96 overflow-y-auto pr-2">
+                        ${filteredListHtml}
+                    </div>
+
+                    <div class="mt-8 pt-4 border-t border-gray-200">
+                        <button onclick="navigateTo('Home')"
+                                class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
+                            Back to Home
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        // --- 5. Action Handlers ---
+
+        const setFilter = (courseId) => {
+            selectedCourseFilter = courseId;
+            renderApp();
+        };
+
+        const handleAddItem = (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('dishName').value.trim();
+            const description = document.getElementById('description').value.trim();
+            const course = document.getElementById('courseSelect').value;
+            const price = parseFloat(document.getElementById('price').value);
+
+            if (!name || !description || isNaN(price) || price <= 0) {
+                showMessage('Please ensure all fields are filled correctly and the price is valid.', 'error');
+                return;
+            }
+
+            const newItem = {
+                id: generateId(),
+                name: name,
+                description: description,
+                course: course,
+                price: price,
+            };
+
+            menu.push(newItem);
+            
+            // Clear form
+            document.getElementById('addItemForm').reset();
+            
+            showMessage(`Added "${name}" to the menu!`);
+            renderApp(); // Re-render Manage screen to show new item
+        };
+
+        const handleRemoveItem = (itemId) => {
+            const initialLength = menu.length;
+            menu = menu.filter(item => item.id !== itemId);
+            
+            if (menu.length < initialLength) {
+                showMessage('Item successfully removed.', 'success');
+            } else {
+                showMessage('Error removing item.', 'error');
+            }
+            renderApp(); // Re-render Manage screen
+        };
+
+
+        /**
+         * Main render function - acts like React's render loop
+         */
+        const renderApp = () => {
+            let content = '';
+            switch (currentPage) {
+                case 'Manage':
+                    content = renderManageScreen();
+                    break;
+                case 'Filter':
+                    content = renderFilterScreen();
+                    break;
+                case 'Home':
+                default:
+                    content = renderHomeScreen();
+                    break;
+            }
+            appContainer.innerHTML = content;
+        };
+
+        // Start the application when the window loads
+        window.onload = renderApp;
+    </script>
+</body>
+</html>
